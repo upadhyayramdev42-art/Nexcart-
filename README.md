@@ -1,80 +1,116 @@
-# NexCart — Module 01
+# NexCart — Module 02
 
-A premium, production-ready ecommerce platform built with Next.js 15, TypeScript, Tailwind CSS, and Firebase.
+A production-ready ecommerce platform built with Next.js 15, TypeScript, Tailwind CSS, and Firebase.
 
-## ✨ Features
+## ✨ What's included
 
-- **Next.js 15 App Router** — File-based routing with React Server Components
-- **TypeScript** — Fully typed codebase with strict mode
-- **Tailwind CSS** — Utility-first styling with custom design tokens
-- **Dark / Light Mode** — System-aware with manual toggle via `next-themes`
-- **Firebase Ready** — Auth, Firestore, and Storage pre-configured via env vars
-- **Responsive Design** — Mobile-first, tested across breakpoints
-- **Reusable Components** — Clean component architecture with shared UI primitives
-- **GitHub Ready** — `.gitignore`, proper project structure
-- **Vercel Ready** — `vercel.json` and env-var-only config
+### Module 01 (Storefront)
+- Responsive homepage with Hero, Featured Categories, Trending Products, Newsletter
+- Professional Header with search, cart, wishlist, dark/light mode
+- Professional Footer with trust bar, social links, sitemap
+
+### Module 02 (Auth + Admin + Customer)
+- **Authentication** — Login, Register, Forgot Password, Email Verification, Persistent Login
+- **User Roles** — Admin & Customer stored in Firestore
+- **Admin Panel** — Full sidebar dashboard with:
+  - Dashboard with KPI stats and recent orders
+  - My Products (CRUD)
+  - Dropshipping Products (read-only, supplier-imported)
+  - Add Product with image upload to Firebase Storage
+  - Categories management
+  - Orders management with status updates
+  - Customers management with role control
+  - Suppliers page (Baap Store, Meesho, Udaan, IndiaMART, TradeIndia, CJ Dropshipping, AliExpress)
+  - Reports with revenue chart
+  - Settings
+- **Customer Panel** — Profile, Wishlist, Orders, Addresses
 
 ## 🚀 Getting Started
 
-### 1. Clone the repository
-
+### 1. Clone
 ```bash
 git clone https://github.com/yourusername/nexcart.git
 cd nexcart
 ```
 
-### 2. Install dependencies
-
+### 2. Install
 ```bash
 npm install
 ```
 
-### 3. Set up environment variables
-
+### 3. Environment variables
 ```bash
 cp .env.example .env.local
+# Fill in your Firebase values
 ```
 
-Edit `.env.local` with your Firebase project values from the [Firebase Console](https://console.firebase.google.com).
-
-### 4. Run the development server
-
+### 4. Run
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3000](http://localhost:3000)
 
 ## 🔥 Firebase Setup
 
-1. Create a project at [console.firebase.google.com](https://console.firebase.google.com)
-2. Enable **Authentication**, **Firestore**, and **Storage**
-3. Go to **Project Settings → General → Your apps** → Add a Web App
-4. Copy the config values into your `.env.local`
+1. Go to [console.firebase.google.com](https://console.firebase.google.com)
+2. Create a project
+3. Enable **Authentication** (Email/Password provider)
+4. Enable **Firestore Database**
+5. Enable **Storage**
+6. Go to **Project Settings → General → Your apps** → Add Web App
+7. Copy config values into `.env.local`
+
+### Firestore Collections (auto-created on first write)
+| Collection | Description |
+|---|---|
+| `users` | uid, name, email, role, emailVerified, createdAt |
+| `my_products` | Admin-owned products |
+| `dropshipping_products` | Supplier-imported products |
+| `suppliers` | Supplier status and metadata |
+| `orders` | Customer orders |
+| `categories` | Product categories |
+| `settings` | Store configuration |
+
+### First Admin User
+After registering, manually set `role: "admin"` in Firestore for your user document to access the admin panel at `/dashboard`.
 
 ## 📁 Project Structure
 
 ```
 nexcart/
 ├── src/
-│   ├── app/                  # Next.js App Router
-│   │   ├── layout.tsx        # Root layout with ThemeProvider
-│   │   ├── page.tsx          # Homepage
-│   │   └── globals.css       # Global styles
+│   ├── app/
+│   │   ├── (auth)/              # Login, Register, Forgot Password, Verify Email
+│   │   ├── (admin)/             # Admin panel (dashboard, products, orders, etc.)
+│   │   ├── (customer)/          # Customer panel (profile, wishlist, orders, addresses)
+│   │   ├── layout.tsx           # Root layout — ThemeProvider + AuthProvider
+│   │   └── page.tsx             # Storefront homepage
 │   ├── components/
-│   │   ├── layout/           # Header, Footer
-│   │   ├── home/             # Page-specific sections
-│   │   ├── ui/               # Reusable primitives (Button, Badge, etc.)
-│   │   └── shared/           # ThemeToggle, SearchBar, etc.
-│   ├── data/                 # Dummy/seed data
-│   ├── hooks/                # Custom React hooks
+│   │   ├── admin/layout/        # AdminSidebar, AdminTopbar
+│   │   ├── admin/dashboard/     # StatCard, RecentOrdersTable
+│   │   ├── auth/                # AuthGuard
+│   │   ├── customer/            # CustomerSidebar
+│   │   ├── home/                # HeroBanner, FeaturedCategories, TrendingProducts, etc.
+│   │   ├── layout/              # Header, Footer
+│   │   ├── shared/              # ThemeToggle, SearchBar
+│   │   └── ui/                  # Button, Badge, StarRating
+│   ├── context/
+│   │   └── AuthContext.tsx      # Global auth state (firebaseUser + appUser)
+│   ├── data/                    # Dummy data for storefront
+│   ├── hooks/                   # useCart, useWishlist
 │   ├── lib/
-│   │   ├── firebase/         # Firebase init & service modules
-│   │   └── utils/            # cn(), formatCurrency(), etc.
-│   └── types/                # TypeScript interfaces
-├── public/                   # Static assets
+│   │   ├── firebase/
+│   │   │   ├── config.ts        # Firebase init
+│   │   │   ├── auth.ts          # Auth service (register, login, logout, etc.)
+│   │   │   ├── firestore.ts     # Firestore service layer
+│   │   │   └── storage.ts       # Firebase Storage helpers
+│   │   └── utils/               # cn(), formatCurrency(), calculateDiscount()
+│   ├── middleware.ts             # Route protection
+│   └── types/                   # All TypeScript interfaces
 ├── .env.example
 ├── .gitignore
+├── README.md
 ├── next.config.ts
 ├── tailwind.config.ts
 ├── tsconfig.json
@@ -88,17 +124,25 @@ nexcart/
 | `npm run dev` | Start development server |
 | `npm run build` | Production build |
 | `npm run start` | Start production server |
-| `npm run lint` | ESLint check |
-| `npm run type-check` | TypeScript type check |
+| `npm run lint` | ESLint |
+| `npm run type-check` | TypeScript check |
 
 ## 🌐 Deploy to Vercel
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new)
-
 1. Push to GitHub
-2. Import the repo in [vercel.com/new](https://vercel.com/new)
-3. Add your environment variables in the Vercel dashboard
+2. Import at [vercel.com/new](https://vercel.com/new)
+3. Add all `NEXT_PUBLIC_FIREBASE_*` env vars in Vercel dashboard
 4. Deploy
+
+## 🗺 Roadmap
+
+| Module | Status |
+|---|---|
+| Module 01 — Storefront | ✅ Done |
+| Module 02 — Auth + Admin + Products | ✅ Done |
+| Module 03 — Baap Store API + CSV Import | 🔜 Next |
+| Module 04 — Cart + Checkout + Payments | 🔜 Planned |
+| Module 05 — SEO + Performance + PWA | 🔜 Planned |
 
 ## 📄 License
 
