@@ -1,146 +1,148 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
-import { Plus, Edit2, Trash2, Tags, X } from "lucide-react";
-import { getCategories, addCategory, deleteCategory } from "@/lib/firebase/firestore";
-import type { FirestoreCategory } from "@/types";
+import { useEffect, useState } from "react";
+import { History, Download, Search, CheckCircle, AlertCircle, XCircle } from "lucide-react";
+import { getImportLogs } from "@/lib/supplier/firestore";
+import { buildErrorReport, downloadCsv } from "@/lib/supplier/csvEngine";
+import { Pagination } from "@/components/ui/Pagination";
+import { TableSkeleton } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { cn } from "@/lib/utils";
+import type { ImportLog } from "@/types";
 
-const MOCK_CATS: FirestoreCategory[] = [
-  { id: "c1", name: "Electronics", slug: "electronics", image: "https://images.unsplash.com/photo-1498049794561-7780e7231661?w=100", productCount: 0, isActive: true, createdAt: new Date() },
-  { id: "c2", name: "Fashion", slug: "fashion", image: "https://images.unsplash.com/photo-1445205170230-053b83016050?w=100", productCount: 0, isActive: true, createdAt: new Date() },
-  { id: "c3", name: "Home & Living", slug: "home-living", image: "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=100", productCount: 0, isActive: true, createdAt: new Date() },
-  { id: "c4", name: "Beauty", slug: "beauty", image: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=100", productCount: 0, isActive: true, createdAt: new Date() },
-  { id: "c5", name: "Sports", slug: "sports", image: "", productCount: 0, isActive: true, createdAt: new Date() },
-  { id: "c6", name: "Books", slug: "books", image: "", productCount: 0, isActive: true, createdAt: new Date() },
+const MOCK_LOGS: ImportLog[] = [
+  { id: "il1", supplierId: "s1", supplierName: "Baap Store", source: "csv", importedCount: 148, updatedCount: 0, skippedCount: 2, failedCount: 0, status: "success", durationMs: 1840, notes: "June batch", createdAt: new Date("2026-06-20T10:01:30") },
+  { id: "il2", supplierId: "s2", supplierName: "Custom CSV", source: "csv", importedCount: 75, updatedCount: 3, skippedCount: 0, failedCount: 2, status: "partial", durationMs: 920, createdAt: new Date("2026-06-22T14:00:45") },
+  { id: "il3", supplierId: "s3", supplierName: "CJ Dropshipping", source: "api", importedCount: 0, updatedCount: 0, skippedCount: 0, failedCount: 10, status: "failed", durationMs: 5000, notes: "API credentials invalid", createdAt: new Date("2026-06-24T09:00:00") },
+  { id: "il4", supplierId: "s1", supplierName: "Baap Store", source: "csv", importedCount: 200, updatedCount: 12, skippedCount: 3, failedCount: 0, status: "success", durationMs: 2100, notes: "July batch", createdAt: new Date("2026-07-01T11:00:00") },
 ];
 
-export default function CategoriesPage() {
-  const [categories, setCategories] = useState<FirestoreCategory[]>([]);
+const STATUS_CONFIG = {
+  success: { icon: CheckCircle, style: "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400", iconStyle: "text-emerald-500" },
+  partial: { icon: AlertCircle, style: "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400", iconStyle: "text-yellow-500" },
+  failed: { icon: XCircle, style: "bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-400", iconStyle: "text-rose-500" },
+};
+
+const PAGE_SIZE = 20;
+
+export default function ImportHistoryPage() {
+  const [logs, setLogs] = useState<ImportLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ name: "", slug: "", description: "" });
-  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
-    async function load() {
-      try {
-        const data = await getCategories();
-        setCategories(data.length > 0 ? data : MOCK_CATS);
-      } catch {
-        setCategories(MOCK_CATS);
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
+    getImportLogs(100)
+      .then((d) => setLogs(d.length > 0 ? d : MOCK_LOGS))
+      .catch(() => setLogs(MOCK_LOGS))
+      .finally(() => setLoading(false));
   }, []);
 
-  const handleAdd = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!form.name || !form.slug) return;
-    setSaving(true);
-    try {
-      const id = await addCategory({ name: form.name, slug: form.slug, description: form.description, image: "", productCount: 0, isActive: true });
-      setCategories((prev) => [...prev, { id, name: form.name, slug: form.slug, description: form.description, image: "", productCount: 0, isActive: true, createdAt: new Date() }]);
-      setShowModal(false);
-      setForm({ name: "", slug: "", description: "" });
-    } catch {
-      // Firestore may not be configured yet
-      setCategories((prev) => [...prev, { id: Date.now().toString(), name: form.name, slug: form.slug, description: form.description, image: "", productCount: 0, isActive: true, createdAt: new Date() }]);
-      setShowModal(false);
-      setForm({ name: "", slug: "", description: "" });
-    } finally {
-      setSaving(false);
-    }
-  };
+  const filtered = logs.filter((l) =>
+    l.supplierName.toLowerCase().includes(search.toLowerCase()) ||
+    l.source.toLowerCase().includes(search.toLowerCase())
+  );
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Delete this category?")) return;
-    try {
-      await deleteCategory(id);
-    } catch { /* ignore */ }
-    setCategories((prev) => prev.filter((c) => c.id !== id));
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  const totals = {
+    imported: logs.reduce((s, l) => s + l.importedCount, 0),
+    updated: logs.reduce((s, l) => s + l.updatedCount, 0),
+    skipped: logs.reduce((s, l) => s + l.skippedCount, 0),
+    failed: logs.reduce((s, l) => s + l.failedCount, 0),
   };
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-gray-900 dark:text-white">Categories</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{categories.length} categories</p>
-        </div>
-        <button onClick={() => setShowModal(true)} className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-all shadow-lg shadow-brand-600/30">
-          <Plus size={16} /> Add Category
-        </button>
+      <div>
+        <h1 className="font-display text-2xl font-bold text-gray-900 dark:text-white">Import History</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{logs.length} import records</p>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {[
+          { label: "Total Imported", value: totals.imported, color: "text-emerald-600" },
+          { label: "Total Updated", value: totals.updated, color: "text-blue-600" },
+          { label: "Total Skipped", value: totals.skipped, color: "text-yellow-600" },
+          { label: "Total Failed", value: totals.failed, color: "text-rose-600" },
+        ].map((stat) => (
+          <div key={stat.label} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4">
+            <p className={`text-2xl font-bold ${stat.color}`}>{stat.value.toLocaleString()}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{stat.label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="relative max-w-xs">
+        <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input type="search" placeholder="Search supplier…" value={search} onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }} className="w-full pl-9 pr-4 py-2.5 text-sm rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20 transition-all" />
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-24 bg-gray-100 dark:bg-gray-800 rounded-2xl animate-pulse" />)}
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800">
+          <TableSkeleton rows={5} cols={8} />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800">
+          <EmptyState icon={History} title="No import history yet" description="Import logs will appear here after your first CSV or API import" />
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {categories.map((cat) => (
-            <div key={cat.id} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 flex items-center gap-4 hover:shadow-md transition-shadow">
-              <div className="w-12 h-12 rounded-xl bg-gray-100 dark:bg-gray-800 overflow-hidden shrink-0 flex items-center justify-center">
-                {cat.image ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={cat.image} alt={cat.name} className="w-full h-full object-cover" />
-                ) : (
-                  <Tags size={20} className="text-gray-400" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-900 dark:text-white text-sm">{cat.name}</p>
-                <p className="text-xs text-gray-400 mt-0.5">/{cat.slug} · {cat.productCount} products</p>
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                <button className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors">
-                  <Edit2 size={13} />
-                </button>
-                <button onClick={() => handleDelete(cat.id)} className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors">
-                  <Trash2 size={13} />
-                </button>
-              </div>
+        <>
+          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+                    {["Date", "Supplier", "Source", "Imported", "Updated", "Skipped", "Failed", "Duration", "Status", ""].map((h) => (
+                      <th key={h} className="text-left px-4 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginated.map((log) => {
+                    const config = STATUS_CONFIG[log.status];
+                    const Icon = config.icon;
+                    return (
+                      <tr key={log.id} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
+                        <td className="px-4 py-3.5 text-gray-500 text-xs whitespace-nowrap">
+                          {log.createdAt.toLocaleDateString()} {log.createdAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </td>
+                        <td className="px-4 py-3.5 font-medium text-gray-900 dark:text-white">{log.supplierName}</td>
+                        <td className="px-4 py-3.5">
+                          <span className="capitalize px-2 py-1 rounded-lg text-xs font-semibold bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{log.source}</span>
+                        </td>
+                        <td className="px-4 py-3.5 font-semibold text-emerald-600 dark:text-emerald-400">{log.importedCount}</td>
+                        <td className="px-4 py-3.5 text-blue-600 dark:text-blue-400">{log.updatedCount}</td>
+                        <td className="px-4 py-3.5 text-yellow-600 dark:text-yellow-400">{log.skippedCount}</td>
+                        <td className="px-4 py-3.5 text-rose-600 dark:text-rose-400">{log.failedCount}</td>
+                        <td className="px-4 py-3.5 text-gray-400 text-xs">{(log.durationMs / 1000).toFixed(1)}s</td>
+                        <td className="px-4 py-3.5">
+                          <span className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold w-fit", config.style)}>
+                            <Icon size={11} className={config.iconStyle} />
+                            {log.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          {log.failedCount > 0 && (
+                            <button
+                              onClick={() => { const r = buildErrorReport([]); downloadCsv(r, `errors_${log.id}.csv`); }}
+                              className="flex items-center gap-1 text-xs text-brand-600 dark:text-brand-400 hover:underline"
+                            >
+                              <Download size={11} /> Errors
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Add Category Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-800 w-full max-w-md p-6 animate-fade-in">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="font-display text-xl font-bold text-gray-900 dark:text-white">Add Category</h2>
-              <button onClick={() => setShowModal(false)} className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-                <X size={16} />
-              </button>
-            </div>
-            <form onSubmit={handleAdd} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Name *</label>
-                <input value={form.name} onChange={(e) => { setForm((p) => ({ ...p, name: e.target.value, slug: e.target.value.toLowerCase().replace(/\s+/g, "-") })); }} required placeholder="e.g. Electronics" className="w-full px-4 py-2.5 text-sm rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-brand-400 transition-all" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Slug *</label>
-                <input value={form.slug} onChange={(e) => setForm((p) => ({ ...p, slug: e.target.value }))} required placeholder="electronics" className="w-full px-4 py-2.5 text-sm rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-brand-400 transition-all" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Description</label>
-                <textarea value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} rows={3} className="w-full px-4 py-2.5 text-sm rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-brand-400 transition-all resize-none" />
-              </div>
-              <div className="flex gap-3 pt-1">
-                <button type="submit" disabled={saving} className="flex-1 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl transition-all text-sm">
-                  {saving ? "Saving…" : "Add Category"}
-                </button>
-                <button type="button" onClick={() => setShowModal(false)} className="flex-1 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 font-semibold py-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all text-sm">
-                  Cancel
-                </button>
-              </div>
-            </form>
           </div>
-        </div>
+          <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+        </>
       )}
     </div>
   );

@@ -16,15 +16,29 @@ import {
   ChevronRight,
   PackagePlus,
   PackageSearch,
+  Link2,
+  FileSpreadsheet,
+  Globe,
+  TrendingUp,
+  History,
+  RefreshCw,
+  Boxes,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+
+interface NavChild {
+  label: string;
+  href: string;
+  icon: React.ElementType;
+}
 
 interface NavItem {
   label: string;
   href?: string;
   icon: React.ElementType;
-  children?: { label: string; href: string; icon: React.ElementType }[];
+  children?: NavChild[];
+  section?: string;
 }
 
 const navItems: NavItem[] = [
@@ -41,7 +55,21 @@ const navItems: NavItem[] = [
   { label: "Categories", href: "/categories", icon: Tags },
   { label: "Orders", href: "/orders", icon: ShoppingCart },
   { label: "Customers", href: "/customers", icon: Users },
-  { label: "Suppliers", href: "/suppliers", icon: Truck },
+  // ─── Module 03 ───
+  {
+    label: "Supplier Engine",
+    icon: Truck,
+    section: "MODULE 03",
+    children: [
+      { label: "Connections", href: "/supplier-connections", icon: Link2 },
+      { label: "Supplier Products", href: "/supplier-products", icon: Boxes },
+      { label: "CSV Imports", href: "/csv-imports", icon: FileSpreadsheet },
+      { label: "API Connections", href: "/api-connections", icon: Globe },
+      { label: "Profit Rules", href: "/profit-rules", icon: TrendingUp },
+      { label: "Import History", href: "/import-history", icon: History },
+      { label: "Sync History", href: "/sync-history", icon: RefreshCw },
+    ],
+  },
   { label: "Reports", href: "/reports", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
@@ -52,7 +80,7 @@ interface AdminSidebarProps {
 
 export function AdminSidebar({ collapsed = false }: AdminSidebarProps) {
   const pathname = usePathname();
-  const [expanded, setExpanded] = useState<string[]>(["Products"]);
+  const [expanded, setExpanded] = useState<string[]>(["Products", "Supplier Engine"]);
 
   const toggleExpand = (label: string) => {
     setExpanded((prev) =>
@@ -63,6 +91,8 @@ export function AdminSidebar({ collapsed = false }: AdminSidebarProps) {
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
   const isGroupActive = (item: NavItem) =>
     item.children?.some((c) => isActive(c.href)) ?? false;
+
+  let lastSection = "";
 
   return (
     <aside
@@ -89,11 +119,19 @@ export function AdminSidebar({ collapsed = false }: AdminSidebarProps) {
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
         {navItems.map((item) => {
+          const showSection = !collapsed && item.section && item.section !== lastSection;
+          if (item.section) lastSection = item.section;
+
           if (item.children) {
             const open = expanded.includes(item.label);
             const groupActive = isGroupActive(item);
             return (
               <div key={item.label}>
+                {showSection && (
+                  <p className="text-[9px] font-bold text-gray-600 uppercase tracking-widest px-3 pt-4 pb-1">
+                    {item.section}
+                  </p>
+                )}
                 <button
                   onClick={() => toggleExpand(item.label)}
                   className={cn(
@@ -155,7 +193,7 @@ export function AdminSidebar({ collapsed = false }: AdminSidebarProps) {
       {/* Version */}
       {!collapsed && (
         <div className="px-5 py-4 border-t border-gray-800">
-          <p className="text-[10px] text-gray-600">NexCart v2.0 · Module 02</p>
+          <p className="text-[10px] text-gray-600">NexCart v3.0 · Module 03</p>
         </div>
       )}
     </aside>

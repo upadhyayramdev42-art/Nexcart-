@@ -147,3 +147,32 @@ nexcart/
 ## 📄 License
 
 MIT © NexCart
+
+## Module 03 — Universal Supplier Engine
+
+### New Pages Added
+| Page | Route |
+|---|---|
+| Supplier Connections | `/supplier-connections` |
+| Supplier Products | `/supplier-products` |
+| CSV Imports | `/csv-imports` |
+| API Connections | `/api-connections` |
+| Profit Rules | `/profit-rules` |
+| Import History | `/import-history` |
+| Sync History | `/sync-history` |
+
+### New Collections (Firestore)
+`suppliers` · `supplier_products` · `csv_imports` · `api_connections` · `profit_rules` · `supplier_logs` · `sync_history` · `scheduler_jobs`
+
+### New Features
+- Universal CSV Import Wizard (drag & drop, column mapping, preview, bulk import)
+- REST API Connector (GET/POST/PUT/PATCH/DELETE, bearer/API key auth, pagination, retry)
+- Profit Rules Engine (global/supplier/category, fixed/percentage, live preview)
+- Supplier Products table (bulk publish/unpublish/delete, export CSV, pagination)
+- Import History with error report download
+- Sync History with duration tracking
+- Toast notification system
+- Skeleton loaders, Empty states, Pagination, ConfirmDialog reusable components
+
+### Architecture Ready For
+Baap Store · Meesho · Udaan · IndiaMART · TradeIndia · CJ Dropshipping · AliExpress · Spocket · Zendrop · HyperSKU · Printful · Printify

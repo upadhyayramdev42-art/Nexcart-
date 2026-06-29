@@ -1,249 +1,153 @@
 "use client";
 
-import { useState, useRef, type FormEvent, type ChangeEvent } from "react";
-import { useRouter } from "next/navigation";
-import { Upload, X, Plus, ArrowLeft } from "lucide-react";
-import { addMyProduct } from "@/lib/firebase/firestore";
-import { uploadProductImage, generateStoragePath } from "@/lib/firebase/storage";
-import { useAuth } from "@/context/AuthContext";
+import { useEffect, useState } from "react";
+import { RefreshCw, Search, CheckCircle, XCircle, Clock, Loader } from "lucide-react";
+import { getSyncHistory } from "@/lib/supplier/firestore";
+import { Pagination } from "@/components/ui/Pagination";
+import { TableSkeleton } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/utils";
-import type { ProductStatus } from "@/types";
+import type { SyncHistory, SyncType } from "@/types";
 
-const CATEGORIES = ["Electronics", "Fashion", "Home & Living", "Beauty", "Sports", "Books", "Toys", "Automotive", "Food & Grocery", "Health"];
+const MOCK_SYNC: SyncHistory[] = [
+  { id: "sh1", supplierId: "s1", supplierName: "Baap Store", syncType: "full", status: "completed", affectedCount: 148, startedAt: new Date("2026-06-20T10:00:00"), completedAt: new Date("2026-06-20T10:01:30") },
+  { id: "sh2", supplierId: "s1", supplierName: "Baap Store", syncType: "price", status: "completed", affectedCount: 148, startedAt: new Date("2026-06-21T08:00:00"), completedAt: new Date("2026-06-21T08:00:12") },
+  { id: "sh3", supplierId: "s3", supplierName: "CJ Dropshipping", syncType: "stock", status: "failed", affectedCount: 0, startedAt: new Date("2026-06-22T12:00:00"), error: "API timeout" },
+  { id: "sh4", supplierId: "s1", supplierName: "Baap Store", syncType: "stock", status: "completed", affectedCount: 148, startedAt: new Date("2026-06-22T14:00:00"), completedAt: new Date("2026-06-22T14:00:08") },
+  { id: "sh5", supplierId: "s2", supplierName: "Custom CSV", syncType: "product", status: "completed", affectedCount: 78, startedAt: new Date("2026-06-23T09:00:00"), completedAt: new Date("2026-06-23T09:00:45") },
+];
 
-export default function AddProductPage() {
-  const router = useRouter();
-  const { appUser } = useAuth();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+const SYNC_TYPE_LABELS: Record<SyncType, string> = {
+  product: "Products",
+  price: "Prices",
+  stock: "Stock",
+  image: "Images",
+  full: "Full Sync",
+};
 
-  const [form, setForm] = useState({
-    name: "",
-    category: "",
-    brand: "",
-    description: "",
-    price: "",
-    salePrice: "",
-    stock: "",
-    sku: "",
-    status: "active" as ProductStatus,
+const STATUS_CONFIG = {
+  completed: { icon: CheckCircle, style: "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400", iconStyle: "text-emerald-500" },
+  failed: { icon: XCircle, style: "bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-400", iconStyle: "text-rose-500" },
+  pending: { icon: Clock, style: "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400", iconStyle: "text-yellow-500" },
+  running: { icon: Loader, style: "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400", iconStyle: "text-blue-500" },
+};
+
+const PAGE_SIZE = 20;
+
+export default function SyncHistoryPage() {
+  const [history, setHistory] = useState<SyncHistory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState<SyncType | "all">("all");
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    getSyncHistory(100)
+      .then((d) => setHistory(d.length > 0 ? d : MOCK_SYNC))
+      .catch(() => setHistory(MOCK_SYNC))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered = history.filter((h) => {
+    const matchSearch = h.supplierName.toLowerCase().includes(search.toLowerCase());
+    const matchType = typeFilter === "all" || h.syncType === typeFilter;
+    return matchSearch && matchType;
   });
-  const [imageFiles, setImageFiles] = useState<File[]>([]);
-  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
 
-  const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
-  };
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
-  const handleImages = (e: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    if (imageFiles.length + files.length > 5) {
-      setError("Maximum 5 images allowed.");
-      return;
-    }
-    setImageFiles((prev) => [...prev, ...files]);
-    files.forEach((f) => {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setImagePreviews((prev) => [...prev, ev.target?.result as string]);
-      };
-      reader.readAsDataURL(f);
-    });
-  };
-
-  const removeImage = (idx: number) => {
-    setImageFiles((prev) => prev.filter((_, i) => i !== idx));
-    setImagePreviews((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError("");
-    if (!form.name || !form.category || !form.price || !form.sku) {
-      setError("Please fill all required fields.");
-      return;
-    }
-    setSaving(true);
-    try {
-      // Upload images
-      let uploadedUrls: string[] = [];
-      if (imageFiles.length > 0) {
-        setUploading(true);
-        const uploadPromises = imageFiles.map((file, i) =>
-          uploadProductImage(
-            file,
-            generateStoragePath("products", file.name),
-            (p) => setUploadProgress(Math.round((i / imageFiles.length) * 100 + p / imageFiles.length))
-          )
-        );
-        uploadedUrls = await Promise.all(uploadPromises);
-        setUploading(false);
-      }
-
-      await addMyProduct({
-        type: "my_product",
-        name: form.name,
-        category: form.category,
-        brand: form.brand,
-        description: form.description,
-        price: parseFloat(form.price),
-        salePrice: form.salePrice ? parseFloat(form.salePrice) : undefined,
-        stock: parseInt(form.stock) || 0,
-        sku: form.sku,
-        images: uploadedUrls,
-        status: form.status,
-        createdBy: appUser?.uid ?? "",
-      });
-
-      router.push("/products/my-products");
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to save product");
-    } finally {
-      setSaving(false);
-    }
+  const getDuration = (h: SyncHistory) => {
+    if (!h.completedAt) return "—";
+    const ms = h.completedAt.getTime() - h.startedAt.getTime();
+    return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <button onClick={() => router.back()} className="w-9 h-9 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-          <ArrowLeft size={16} />
-        </button>
-        <div>
-          <h1 className="font-display text-2xl font-bold text-gray-900 dark:text-white">Add Product</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Create a new product in your store</p>
-        </div>
+    <div className="space-y-6 animate-fade-in">
+      <div>
+        <h1 className="font-display text-2xl font-bold text-gray-900 dark:text-white">Sync History</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{history.length} sync records</p>
       </div>
 
-      {error && (
-        <div className="px-4 py-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-400 text-sm">
-          {error}
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {[
+          { label: "Total Syncs", value: history.length, color: "text-gray-900 dark:text-white" },
+          { label: "Successful", value: history.filter((h) => h.status === "completed").length, color: "text-emerald-600" },
+          { label: "Failed", value: history.filter((h) => h.status === "failed").length, color: "text-rose-600" },
+          { label: "Products Affected", value: history.reduce((s, h) => s + h.affectedCount, 0).toLocaleString(), color: "text-brand-600" },
+        ].map((stat) => (
+          <div key={stat.label} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4">
+            <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{stat.label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        <div className="relative">
+          <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input type="search" placeholder="Search supplier…" value={search} onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }} className="w-full pl-9 pr-4 py-2.5 text-sm rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-brand-400 transition-all" />
         </div>
+        <select value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value as SyncType | "all"); setCurrentPage(1); }} className="px-4 py-2.5 text-sm rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-brand-400 transition-all">
+          <option value="all">All Types</option>
+          {(Object.keys(SYNC_TYPE_LABELS) as SyncType[]).map((t) => <option key={t} value={t}>{SYNC_TYPE_LABELS[t]}</option>)}
+        </select>
+      </div>
+
+      {loading ? (
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800">
+          <TableSkeleton rows={5} cols={7} />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800">
+          <EmptyState icon={RefreshCw} title="No sync history yet" description="Sync logs will appear here after your first product sync" />
+        </div>
+      ) : (
+        <>
+          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+                    {["Date", "Supplier", "Type", "Affected", "Duration", "Status", "Notes"].map((h) => (
+                      <th key={h} className="text-left px-4 py-3.5 text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginated.map((entry) => {
+                    const config = STATUS_CONFIG[entry.status];
+                    const Icon = config.icon;
+                    return (
+                      <tr key={entry.id} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
+                        <td className="px-4 py-3.5 text-gray-500 text-xs whitespace-nowrap">
+                          {entry.startedAt.toLocaleDateString()} {entry.startedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </td>
+                        <td className="px-4 py-3.5 font-medium text-gray-900 dark:text-white">{entry.supplierName}</td>
+                        <td className="px-4 py-3.5">
+                          <span className="px-2 py-1 rounded-lg text-xs font-semibold bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{SYNC_TYPE_LABELS[entry.syncType]}</span>
+                        </td>
+                        <td className="px-4 py-3.5 font-semibold text-gray-900 dark:text-white">{entry.affectedCount}</td>
+                        <td className="px-4 py-3.5 text-gray-400 text-xs">{getDuration(entry)}</td>
+                        <td className="px-4 py-3.5">
+                          <span className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold w-fit", config.style)}>
+                            <Icon size={11} className={config.iconStyle} />
+                            {entry.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 text-gray-400 text-xs">{entry.error ?? "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+        </>
       )}
-
-      <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Basic info */}
-        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6 space-y-4">
-          <h2 className="font-semibold text-gray-900 dark:text-white">Basic Information</h2>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Product Name *</label>
-            <input name="name" value={form.name} onChange={handleChange} required placeholder="e.g. Sony WH-1000XM5 Headphones" className="w-full px-4 py-2.5 text-sm rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20 transition-all" />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Category *</label>
-              <select name="category" value={form.category} onChange={handleChange} required className="w-full px-4 py-2.5 text-sm rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20 transition-all">
-                <option value="">Select category</option>
-                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Brand</label>
-              <input name="brand" value={form.brand} onChange={handleChange} placeholder="e.g. Sony" className="w-full px-4 py-2.5 text-sm rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20 transition-all" />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Description</label>
-            <textarea name="description" value={form.description} onChange={handleChange} rows={4} placeholder="Describe your product…" className="w-full px-4 py-2.5 text-sm rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20 transition-all resize-none" />
-          </div>
-        </div>
-
-        {/* Pricing & Inventory */}
-        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6 space-y-4">
-          <h2 className="font-semibold text-gray-900 dark:text-white">Pricing & Inventory</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Price (₹) *</label>
-              <input name="price" type="number" min="0" step="0.01" value={form.price} onChange={handleChange} required placeholder="0.00" className="w-full px-4 py-2.5 text-sm rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20 transition-all" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Sale Price (₹)</label>
-              <input name="salePrice" type="number" min="0" step="0.01" value={form.salePrice} onChange={handleChange} placeholder="0.00" className="w-full px-4 py-2.5 text-sm rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20 transition-all" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Stock *</label>
-              <input name="stock" type="number" min="0" value={form.stock} onChange={handleChange} required placeholder="0" className="w-full px-4 py-2.5 text-sm rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20 transition-all" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">SKU *</label>
-              <input name="sku" value={form.sku} onChange={handleChange} required placeholder="e.g. EL-HP-001" className="w-full px-4 py-2.5 text-sm rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20 transition-all" />
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Status</label>
-            <select name="status" value={form.status} onChange={handleChange} className="w-full sm:w-48 px-4 py-2.5 text-sm rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20 transition-all">
-              <option value="active">Active</option>
-              <option value="draft">Draft</option>
-              <option value="inactive">Inactive</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Images */}
-        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6 space-y-4">
-          <h2 className="font-semibold text-gray-900 dark:text-white">Product Images</h2>
-          <p className="text-xs text-gray-400">Upload up to 5 images. First image will be the main image.</p>
-
-          <div className="flex flex-wrap gap-3">
-            {imagePreviews.map((src, i) => (
-              <div key={i} className="relative w-24 h-24 rounded-xl overflow-hidden border-2 border-gray-200 dark:border-gray-700">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={src} alt="" className="w-full h-full object-cover" />
-                <button type="button" onClick={() => removeImage(i)} className="absolute top-1 right-1 w-5 h-5 bg-black/70 rounded-full flex items-center justify-center text-white hover:bg-rose-600 transition-colors">
-                  <X size={11} />
-                </button>
-                {i === 0 && <span className="absolute bottom-1 left-1 text-[9px] bg-brand-600 text-white px-1.5 py-0.5 rounded font-bold">MAIN</span>}
-              </div>
-            ))}
-
-            {imagePreviews.length < 5 && (
-              <button type="button" onClick={() => fileInputRef.current?.click()} className={cn("w-24 h-24 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 transition-colors", "border-gray-300 dark:border-gray-600 hover:border-brand-400 text-gray-400 hover:text-brand-500")}>
-                <Upload size={18} />
-                <span className="text-[10px] font-medium">Add Image</span>
-              </button>
-            )}
-          </div>
-
-          <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImages} />
-
-          {uploading && (
-            <div>
-              <div className="flex justify-between text-xs text-gray-500 mb-1">
-                <span>Uploading…</span><span>{uploadProgress}%</span>
-              </div>
-              <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
-                <div className="h-full bg-brand-600 rounded-full transition-all" style={{ width: `${uploadProgress}%` }} />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={saving}
-            className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-semibold px-6 py-3 rounded-xl transition-all shadow-lg shadow-brand-600/30 active:scale-[0.98]"
-          >
-            {saving ? (
-              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            ) : (
-              <Plus size={16} />
-            )}
-            {saving ? "Saving…" : "Save Product"}
-          </button>
-          <button type="button" onClick={() => router.back()} className="px-6 py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            Cancel
-          </button>
-        </div>
-      </form>
     </div>
   );
 }

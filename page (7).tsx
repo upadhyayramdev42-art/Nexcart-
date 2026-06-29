@@ -44,7 +44,7 @@ export default function WishlistPage() {
 function WishlistCard({ product, onRemove, onAddToCart }: { product: Product; onRemove: () => void; onAddToCart: () => void }) {
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 flex items-start gap-4">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
+            // eslint-disable-next-line @next/next/no-img-element
       <img src={product.image} alt={product.name} className="w-20 h-20 rounded-xl object-cover bg-gray-100 shrink-0" />
       <div className="flex-1 min-w-0">
         <p className="text-xs text-brand-500 font-semibold uppercase tracking-wide mb-0.5">{product.category}</p>
